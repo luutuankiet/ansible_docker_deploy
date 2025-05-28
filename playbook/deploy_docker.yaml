@@ -1,0 +1,63 @@
+- name: Provision Docker-in-Docker pseudo-VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+
+  vars:
+    vpcs:
+      vpc-1:
+        port: 60010
+        memory: "1g"
+      vpc-2:
+        port: 60011
+        memory: "1g"
+
+    state: started # started | absent
+
+
+    # Filter VPCs based on target_vpc variable
+    filtered_vpcs: "{{ vpcs | dict2items | selectattr('key', 'equalto', target_vpc) | items2dict if target_vpc is defined else vpcs }}"
+
+  tasks:
+    - name: Manage DinD container state (start or remove)
+      community.docker.docker_container:
+        name: "dind-{{ vpc_item.key }}"
+        image: docker:dind
+        state: "{{ state }}"
+        privileged: true
+        ports: "{{ [vpc_item.value.port ~ ':2375'] if state == 'started' else [] }}"
+
+        restart_policy: unless-stopped
+        memory: "{{ vpc_item.value.memory if state == 'started' else omit }}"
+        force_kill: "{{ state == 'absent' }}"
+      loop: "{{ filtered_vpcs | dict2items }}"
+      loop_control:
+        loop_var: vpc_item
+
+    - name: Update containers apt
+      ansible.builtin.shell: |
+        echo "hello world"
+      args:
+        executable: /bin/sh
+      delegate_to: "dind-{{ vpc_item.key }}"
+      become: false
+      loop: "{{ filtered_vpcs | dict2items }}"
+      loop_control:
+        loop_var: vpc_item
+
+    # - name: Copy Docker Compose file to DinD container
+    #   ansible.builtin.copy:
+    #     src: ./docker-compose.yml
+    #     dest: /root/docker-compose.yml
+    #   delegate_to: "dind-{{ vpc_item.key }}"
+    #   loop: "{{ filtered_vpcs | dict2items }}"
+    #   loop_control:
+    #     loop_var: vpc_item
+
+    # - name: Deploy docker-compose infrastructure inside DinD container
+    #   ansible.builtin.shell: docker-compose -f /root/docker-compose.yml up -d
+    #   delegate_to: "dind-{{ vpc_item.key }}"
+    #   loop: "{{ filtered_vpcs | dict2items }}"
+    #   loop_control:
+    #     loop_var: vpc_item
