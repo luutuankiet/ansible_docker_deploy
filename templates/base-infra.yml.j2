@@ -1,0 +1,28 @@
+  traefik:
+    image: traefik:v3.0
+    command: 
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--api.insecure=true"
+      - "--entryPoints.web.address=:80"
+      # - "--providers.docker.exposedbydefault=false"
+      # - "--log.level=DEBUG"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+  wetty:
+    image: wettyoss/wetty
+    command:
+      - --base=/
+      - --ssh-host=host.docker.internal
+      - --ssh-port=22
+      - --ssh-user=root
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.wetty.loadbalancer.server.port=3000"
+      - "traefik.http.routers.wetty.rule=HostRegexp(`^ssh\\..+\\.traefik\\.me$`)"
+      - "traefik.http.routers.wetty.entrypoints=web"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

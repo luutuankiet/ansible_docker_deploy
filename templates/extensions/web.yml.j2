@@ -1,0 +1,7 @@
+  webapp:
+    image: tiangolo/uvicorn-gunicorn-fastapi:python3.9
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.webapp.loadbalancer.server.port=80"
+      - "traefik.http.routers.webapp.rule=HostRegexp(`^webapp\\..+\\.traefik\\.me$`)"
+      - "traefik.http.routers.webapp.entrypoints=web"

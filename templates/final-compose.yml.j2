@@ -1,0 +1,7 @@
+services:
+# base infra layer for administration
+{% include 'base-infra.yml.j2' %}
+
+
+# app layer
+{% include 'extensions/' + extension_name + '.yml.j2' %}

@@ -1,0 +1,6 @@
+stacks/
+.ansible/
+.vscode/
+.venv/
+.python-version
+uv.lock

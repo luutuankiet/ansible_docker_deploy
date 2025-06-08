@@ -1,0 +1,17 @@
+vpcs:
+  ken-test:
+    traefik_port: 60010
+    dashboard_port: 60110
+    memory: "1g"
+    extension: "web"
+  
+  kha-test:
+    traefik_port: 60011
+    dashboard_port: 60111
+    memory: "1g"
+    extension: "web"
+
+common:
+  image: "boyluu96/ubuntu-dind:slim"
+  privileged: true
+  restart_policy: "unless-stopped"

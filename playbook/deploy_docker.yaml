@@ -3,61 +3,58 @@
   connection: local
   gather_facts: false
 
+  vars_files:
+    - ../config/vps-config.yml
 
   vars:
-    vpcs:
-      vpc-1:
-        port: 60010
-        memory: "1g"
-      vpc-2:
-        port: 60011
-        memory: "1g"
+    # Map new config structure to existing playbook variables
+    vpcs: "{{ vpcs }}"
+    state: "{{ target_state if target_state is defined else 'started' }}"  # started | absent
 
-    state: started # started | absent
-
-
-    # Filter VPCs based on target_vpc variable
     filtered_vpcs: "{{ vpcs | dict2items | selectattr('key', 'equalto', target_vpc) | items2dict if target_vpc is defined else vpcs }}"
 
   tasks:
+    - name: Create dir to store compose files
+      loop: "{{ filtered_vpcs | dict2items }}"
+      loop_control:
+        loop_var: vpc_item
+      ansible.builtin.file:
+        path: "./stacks/{{ vpc_item.key }}"
+        state: directory
+        mode: 0755
+        
+
+    - name: Generate final compose file (base + extension)
+      ansible.builtin.template:
+        src: "../templates/final-compose.yml.j2"
+        dest: "./stacks/{{ vpc_item.key }}/docker-compose.yml"
+      vars:
+        vpc_name: "{{ vpc_item.key }}"
+        extension_name: "{{ vpc_item.value.extension }}"
+      loop: "{{ filtered_vpcs | dict2items }}"
+      loop_control:
+        loop_var: vpc_item
+
     - name: Manage DinD container state (start or remove)
       community.docker.docker_container:
-        name: "dind-{{ vpc_item.key }}"
-        image: docker:dind
+        name: "vpc-{{ vpc_item.key }}"
+        image: "{{ common.image }}"
         state: "{{ state }}"
-        privileged: true
-        ports: "{{ [vpc_item.value.port ~ ':2375'] if state == 'started' else [] }}"
-
-        restart_policy: unless-stopped
-        memory: "{{ vpc_item.value.memory if state == 'started' else omit }}"
+        privileged: "{{ common.privileged }}"
+        ports:
+          - "{{ vpc_item.value.traefik_port }}:80"
+          - "{{ vpc_item.value.dashboard_port }}:8080"
+        restart_policy: "{{ common.restart_policy }}"
+        memory: "{{ vpc_item.value.memory | default('1g') }}"
         force_kill: "{{ state == 'absent' }}"
+        volumes:
+          - "./stacks/{{ vpc_item.key }}:/app/stacks/{{ vpc_item.key }}:ro"
+        command:
+          - "docker"
+          - "compose"
+          - "-f"
+          - "/app/stacks/{{ vpc_item.key }}/docker-compose.yml"
+          - "up"
       loop: "{{ filtered_vpcs | dict2items }}"
       loop_control:
         loop_var: vpc_item
-
-    - name: Update containers apt
-      ansible.builtin.shell: |
-        echo "hello world"
-      args:
-        executable: /bin/sh
-      delegate_to: "dind-{{ vpc_item.key }}"
-      become: false
-      loop: "{{ filtered_vpcs | dict2items }}"
-      loop_control:
-        loop_var: vpc_item
-
-    # - name: Copy Docker Compose file to DinD container
-    #   ansible.builtin.copy:
-    #     src: ./docker-compose.yml
-    #     dest: /root/docker-compose.yml
-    #   delegate_to: "dind-{{ vpc_item.key }}"
-    #   loop: "{{ filtered_vpcs | dict2items }}"
-    #   loop_control:
-    #     loop_var: vpc_item
-
-    # - name: Deploy docker-compose infrastructure inside DinD container
-    #   ansible.builtin.shell: docker-compose -f /root/docker-compose.yml up -d
-    #   delegate_to: "dind-{{ vpc_item.key }}"
-    #   loop: "{{ filtered_vpcs | dict2items }}"
-    #   loop_control:
-    #     loop_var: vpc_item
