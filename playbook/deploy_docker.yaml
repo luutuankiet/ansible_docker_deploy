@@ -47,6 +47,8 @@
           - "{{ vpc_item.value.dashboard_port }}:8080"
         restart_policy: "{{ common.restart_policy }}"
         memory: "{{ vpc_item.value.memory | default('1g') }}"
+        cpus: "{{ vpc_item.value.cpus | default(1) }}"
+        keep_volumes: false
         force_kill: "{{ state == 'absent' }}"
         volumes:
           - "./stacks/{{ vpc_item.key }}:/app/stacks/{{ vpc_item.key }}:ro"

@@ -3,12 +3,14 @@ vpcs:
     traefik_port: 60010
     dashboard_port: 60110
     memory: "1g"
+    cpus: "0.5"
     extension: "web"
   
   kha-test:
     traefik_port: 60011
     dashboard_port: 60111
     memory: "1g"
+    cpus: "0.5"
     extension: "web"
 
 common:
