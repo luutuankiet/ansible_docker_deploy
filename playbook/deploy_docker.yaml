@@ -10,8 +10,8 @@
     # Map new config structure to existing playbook variables
     vpcs: "{{ vpcs }}"
     state: "{{ target_state if target_state is defined else 'started' }}"  # started | absent
-
     filtered_vpcs: "{{ vpcs | dict2items | selectattr('key', 'equalto', target_vpc) | items2dict if target_vpc is defined else vpcs }}"
+    source_compose: "../templates/final-compose.yml.j2"
 
   tasks:
     - name: Create dir to store compose files
@@ -21,13 +21,14 @@
       ansible.builtin.file:
         path: "./stacks/{{ vpc_item.key }}"
         state: directory
-        mode: 0755
-        
+        mode: "0755"
+
 
     - name: Generate final compose file (base + extension)
       ansible.builtin.template:
-        src: "../templates/final-compose.yml.j2"
+        src: "{{ source_compose }}"
         dest: "./stacks/{{ vpc_item.key }}/docker-compose.yml"
+        mode: "0755"
       vars:
         vpc_name: "{{ vpc_item.key }}"
         extension_name: "{{ vpc_item.value.extension }}"
