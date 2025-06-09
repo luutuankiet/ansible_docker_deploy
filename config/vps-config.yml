@@ -11,7 +11,7 @@ vpcs:
     dashboard_port: 60111
     memory: "1g"
     cpus: "0.5"
-    extension: "file"
+    extension: "filebrowser"
 
 common:
   image: "boyluu96/ubuntu-dind:slim"

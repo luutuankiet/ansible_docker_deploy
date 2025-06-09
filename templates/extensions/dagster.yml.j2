@@ -1,0 +1,146 @@
+
+
+  # This service runs the postgres DB used by dagster for run storage, schedule storage,
+  # and event log storage. Depending on the hardware you run this Compose on, you may be able
+  # to reduce the interval and timeout in the healthcheck to speed up your `docker-compose up` times.
+  dagster_postgresql:
+    image: postgres:11
+    container_name: dagster_postgresql
+    environment:
+      POSTGRES_USER: "postgres_user"
+      POSTGRES_PASSWORD: "postgres_password"
+      POSTGRES_DB: "postgres_db"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres_user -d postgres_db"]
+      interval: 10s
+      timeout: 8s
+      retries: 5
+    restart: unless-stopped
+
+  # This service runs dagster-webserver, which loads your user code from the user code container.
+  # Since our instance uses the QueuedRunCoordinator, any runs submitted from the webserver will be put on
+  # a queue and later dequeued and launched by dagster-daemon.
+  dagster_webserver:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_dagster
+    entrypoint:
+      - dagster-webserver
+      - -h
+      - "0.0.0.0"
+      - -p
+      - "3000"
+      - -w
+      - workspace.yaml
+    container_name: dagster_webserver
+    expose:
+      - "3000"
+    ports:
+      - "60001:3000"
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+    depends_on:
+      dagster_postgresql:
+        condition: service_healthy
+      dagster_gtd_user_code_dev:
+        condition: service_started
+      dagster_gtd_user_code_prod:
+        condition: service_started
+    restart: unless-stopped
+
+  # This service runs the dagster-daemon process, which is responsible for taking runs
+  # off of the queue and launching them, as well as creating runs from schedules or sensors.
+  dagster_daemon:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_dagster
+    entrypoint:
+      - dagster-daemon
+      - run
+    container_name: dagster_daemon
+    # restart: on-failure
+    restart: unless-stopped
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+    volumes: # Make docker client accessible so we can launch containers using host docker
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/io_manager_storage:/tmp/io_manager_storage
+    depends_on:
+      dagster_postgresql:
+        condition: service_healthy
+      dagster_gtd_user_code_dev:
+        condition: service_started
+      dagster_gtd_user_code_prod:
+        condition: service_started
+
+
+  # This service runs the gRPC server that loads your user code, in both dagster-webserver
+  # and dagster-daemon. By setting DAGSTER_CURRENT_IMAGE to its own image, we tell the
+  # run launcher to use this same image when launching runs in a new container as well.
+  # Multiple containers like this can be deployed separately - each just needs to run on
+  # its own port, and have its own entry in the workspace.yaml file that's loaded by the
+      # webserver.
+  dagster_gtd_user_code_dev:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_gtd_user_code
+    container_name: dagster_gtd_usercode_dev
+    image: dagster_gtd_usercode_image
+    # restart: always
+    restart: unless-stopped
+    volumes:
+      - "./user_code/dev/scrape-ticktick:/opt/dagster/app"
+      - "./dagster.yaml:/opt/dagster/dagster.yaml"
+      - "./workspace.yaml:/opt/dagster/workspace.yaml" 
+      - "${HOME}/.vscode-server/extensions:/root/.vscode-server/extensions"
+      - "${HOME}/.gitconfig:/root/.gitconfig"
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+      DAGSTER_CURRENT_IMAGE: "dagster_gtd_usercode_image"
+      DAGSTER_CODE_LOCATION_NAME: "gtd_dev"
+      DAGSTER_HOME: "/opt/dagster/"
+      PYTHONPATH: "/opt/dagster/app/app"
+    expose:
+      - 4001
+    ports:
+      - "5678:5678"
+    command: [
+      "python", 
+      "-m", "debugpy", "--listen", "0.0.0.0:5678",
+      "-m", "dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4001", "-m", "ETL"]
+    # command: ["sleep", "infinity"]
+
+
+  dagster_gtd_user_code_prod:
+    build:
+      context: .
+      dockerfile: ./Dockerfile_gtd_user_code
+    container_name: dagster_gtd_usercode_prod
+    image: dagster_gtd_usercode_image
+    # restart: always
+    restart: unless-stopped
+    expose:
+      - 4000
+    volumes:
+      - "./user_code/prod/scrape-ticktick:/opt/dagster/app"
+      - "./dagster.yaml:/opt/dagster/dagster.yaml"
+      - "./workspace.yaml:/opt/dagster/workspace.yaml"
+      - "${HOME}/.vscode-server/extensions:/root/.vscode-server/extensions"
+      - "${HOME}/.gitconfig:/root/.gitconfig"
+    environment:
+      DAGSTER_POSTGRES_USER: "postgres_user"
+      DAGSTER_POSTGRES_PASSWORD: "postgres_password"
+      DAGSTER_POSTGRES_DB: "postgres_db"
+      DAGSTER_CURRENT_IMAGE: "dagster_gtd_usercode_image"
+      DAGSTER_CODE_LOCATION_NAME: "gtd_prod"
+      DAGSTER_HOME: "/opt/dagster/"
+      PYTHONPATH: "/opt/dagster/app/app"
+    command: [
+      "python", 
+      "-m", "dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4000", "-m", "ETL"]

@@ -1,0 +1,8 @@
+services:
+  filebrowser:
+    image: filebrowser/filebrowser
+    labels: 
+      - "traefik.enable=true"
+      - "traefik.http.services.file.loadbalancer.server.port=80"
+      - "traefik.http.routers.file.rule=HostRegexp(`^file\\..+\\.traefik\\.me$`)"
+      - "traefik.http.routers.file.entrypoints=web"
