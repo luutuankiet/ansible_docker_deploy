@@ -4,14 +4,14 @@
   gather_facts: false
 
   vars_files:
-    - ../config/vps-config.yml
+    - ../config/vps-config.yml # Assuming this file exists and defines 'vpcs'
 
   vars:
     # Map new config structure to existing playbook variables
     vpcs: "{{ vpcs }}"
     state: "{{ target_state if target_state is defined else 'started' }}"  # started | absent
     filtered_vpcs: "{{ vpcs | dict2items | selectattr('key', 'equalto', target_vpc) | items2dict if target_vpc is defined else vpcs }}"
-    source_compose: "../templates/final-compose.yml.j2"
+    # source_compose variable is no longer needed for the final merge step
 
   tasks:
     - name: Create dir to store compose files
@@ -23,36 +23,57 @@
         state: directory
         mode: "0755"
 
-
-    - name: Generate final compose file (base + extension)
+    - name: Generate base compose file
       ansible.builtin.template:
-        src: "{{ source_compose }}"
-        dest: "./stacks/{{ vpc_item.key }}/docker-compose.yml"
-        mode: "0755"
+        src: "../templates/base-infra.yml.j2"
+        dest: "./stacks/{{ vpc_item.key }}/base-infra.yml"
+        mode: "0644" # Standard file permissions
       vars:
-        vpc_name: "{{ vpc_item.key }}"
-        extension_name: "{{ vpc_item.value.extension }}"
+        vpc_name: "{{ vpc_item.key }}" # Pass any necessary vars to base template
       loop: "{{ filtered_vpcs | dict2items }}"
       loop_control:
         loop_var: vpc_item
 
+    - name: Generate extension compose file ({{ vpc_item.value.extension }})
+      ansible.builtin.template:
+        src: "../templates/extensions/{{ vpc_item.value.extension }}.yml.j2"
+        dest: "./stacks/{{ vpc_item.key }}/extension.yml"
+        mode: "0644" # Standard file permissions
+      vars:
+        vpc_name: "{{ vpc_item.key }}" # Pass any necessary vars to extension template
+        # Pass any other vars needed by the specific extension template
+      loop: "{{ filtered_vpcs | dict2items }}"
+      loop_control:
+        loop_var: vpc_item
+
+    - name: Merge compose files using docker compose config
+      ansible.builtin.shell:
+        cmd: "docker compose -f base-infra.yml -f extension.yml config > docker-compose.yml"
+        chdir: "./stacks/{{ vpc_item.key }}" # Run the command in the stack directory
+      loop: "{{ filtered_vpcs | dict2items }}"
+      loop_control:
+        loop_var: vpc_item
+      # This task requires 'docker compose' command to be available on localhost
+
     - name: Manage DinD container state (start or remove)
       community.docker.docker_container:
         name: "vpc-{{ vpc_item.key }}"
-        image: "{{ common.image }}"
+        image: "{{ common.image }}" # Assuming common.image is defined in vps-config.yml
         state: "{{ state }}"
-        privileged: "{{ common.privileged }}"
+        privileged: "{{ common.privileged }}" # Assuming common.privileged is defined
         ports:
           - "{{ vpc_item.value.traefik_port }}:80"
           - "{{ vpc_item.value.dashboard_port }}:8080"
-        restart_policy: "{{ common.restart_policy }}"
+        restart_policy: "{{ common.restart_policy }}" # Assuming common.restart_policy is defined
         memory: "{{ vpc_item.value.memory | default('1g') }}"
         cpus: "{{ vpc_item.value.cpus | default(1) }}"
-        keep_volumes: false
+        keep_volumes: false # Set to true if you want to preserve volumes on stop/start
         force_kill: "{{ state == 'absent' }}"
         volumes:
+          # Mount the directory containing the final docker-compose.yml
           - "./stacks/{{ vpc_item.key }}:/app/stacks/{{ vpc_item.key }}:ro"
         command:
+          # The command inside the DinD container now uses the merged file
           - "docker"
           - "compose"
           - "-f"
@@ -61,3 +82,4 @@
       loop: "{{ filtered_vpcs | dict2items }}"
       loop_control:
         loop_var: vpc_item
+      # Add a handler or separate task to stop/remove containers gracefully if needed for state='absent'

@@ -1,6 +1,8 @@
+version: '3.8' # Or another suitable version
+services:
   traefik:
     image: traefik:v3.0
-    command: 
+    command:
       - "--api.dashboard=true"
       - "--providers.docker=true"
       - "--api.insecure=true"
@@ -22,7 +24,7 @@
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.wetty.loadbalancer.server.port=3000"
-      - "traefik.http.routers.wetty.rule=HostRegexp(`^ssh\\..+\\.traefik\\.me$`)"
+      - "traefik.http.routers.wetty.rule=HostRegexp(`^ssh\\..+\\.traefik\\.me`)"
       - "traefik.http.routers.wetty.entrypoints=web"
     extra_hosts:
       - "host.docker.internal:host-gateway"
